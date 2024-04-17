@@ -1,6 +1,11 @@
 % ==============================================================================
 % uSEM: universial segmentation error map
 %       -- a 3D visualisation of segmentation error
+% 
+% Function:
+% for each vertex on the ground truth (GT) surface, calculate the distance to the nearest
+%   points in the model-predicted surface, and map those error values onto the GT surface
+%   (surface are constructed from binary masks)
 % ------------------------------------------------------------------------------
 % Matlab Version: 2023b or later (tested)
 %
@@ -32,11 +37,15 @@ dir_results = fullfile(wd, "Results");
 % directional = true;
 
 % uSEM configs (optional)
-% colormaps: sky (default) (since R2023a), cool, hot, jet, spring, summer, autumn, winter   
-cmap = "sky";
+cmap = "sky"; % colormaps: sky (default) (since R2023a), cool, hot, jet, spring, summer, autumn, winter
 visibility = "on";
-round_acc = 1; % round error map
-threshold = 0.5; % ignore minor errors
+round_acc = 0.5; % round error map
+threshold = 0; % ignore minor errors
+smooth_mesh_iter = 2; % surface smoothing iteration -- only for visualisation; [values unchanged]
+
+% uSEM smoothing
+smooth_uSEM = true; % smoothing of error values -- [values changed]
+smooth_uSEM_neigh = 9; % neighborhood for uSEM smoothing
 % --------------------------------------------
 
 
@@ -67,7 +76,7 @@ for i=1:length(labels)
     label = niftiread(label_info);
     pred_info = niftiinfo(fullfile(dir_preds, preds(i).name));
     pred = niftiread(pred_info);
-    
+
     % get voxel size
     voxSize = pred_info.PixelDimensions;
 
@@ -84,17 +93,27 @@ for i=1:length(labels)
         FV_pred = CM_cal_mask2mesh(mask_pred);
         FV_label.vertices = FV_label.vertices .* voxSize;
         FV_pred.vertices = FV_pred.vertices .* voxSize;
+
         % find nearest neighbour in the predicted surface for each vertex in the label surface
         [distance, dest_idx] = pdist2(FV_pred.vertices, FV_label.vertices, 'euclidean', 'Smallest', 1);
-        
+        errormap = reshape(distance, [], 1);
+
         % TODO:
         % if directional
-        % 
+        %
         % end
+
+        if smooth_mesh_iter>0
+            [FV_label.vertices, FV_label.faces] = matGeom_smoothMesh(FV_label.vertices, FV_label.faces, smooth_mesh_iter); % matGeom
+        end
+
+        if smooth_uSEM
+            errormap = cal_smoothMap(errormap, FV_label.vertices, smooth_uSEM_neigh);
+        end
 
         % construct uSEM
         nameROI = "ROI" + num2str(idx);
-        uSEM.(nameROI).errormap = reshape(distance, [], 1);
+        uSEM.(nameROI).errormap = errormap;
         uSEM.(nameROI).vertices = FV_label.vertices;
         uSEM.(nameROI).faces = FV_label.faces;
     end
